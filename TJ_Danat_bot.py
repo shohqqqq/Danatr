@@ -450,8 +450,41 @@ def sales_cmd(update: Update, context: CallbackContext):
     update.message.reply_text(out)
 
 
+# ---------------- Keep-alive web server (for Render web service) ----------------
+from threading import Thread
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+
+class _PingHandler(BaseHTTPRequestHandler):
+    def _ok(self, body=True):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.end_headers()
+        if body:
+            self.wfile.write(b"Bot is running")
+
+    def do_GET(self):
+        self._ok()
+
+    def do_HEAD(self):  # UptimeRobot often uses HEAD
+        self._ok(body=False)
+
+    def log_message(self, *args):
+        pass
+
+
+def start_web_server():
+    port = os.getenv("PORT")  # Render sets this automatically
+    if not port:
+        return
+    server = HTTPServer(("0.0.0.0", int(port)), _PingHandler)
+    Thread(target=server.serve_forever, daemon=True).start()
+    logger.info("Web server listening on port %s", port)
+
+
 # ---------------- Run ----------------
 def main():
+    start_web_server()
     updater = Updater(BOT_TOKEN, use_context=True)
     dp = updater.dispatcher
     dp.add_handler(CommandHandler("start", start_cmd))
