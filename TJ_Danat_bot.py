@@ -229,6 +229,9 @@ PKG_RE = re.compile(r"^(25|100|310|520|1060|2180|5600)\s*(💎|алмаз|almaz)
 L_VOUCH = {"tj": "🎫 Ваучерҳо", "uz": "🎫 Vaucherlar", "ru": "🎫 Ваучеры"}
 L_BACK = {"tj": "🔙 Бозгашт", "uz": "🔙 Orqaga", "ru": "🔙 Назад"}
 L_SHOT = {"tj": "📤 Скриншот фиристодам", "uz": "📤 Skreenshot yubordim", "ru": "📤 Отправил скриншот"}
+BTN_ESKHATA = "🏦 Eskhata"
+BTN_DCITY = "💳 DCity"
+CARD_NAMES = {"eskhata": "Eskhata Bank", "dcity": "DCity"}
 CUR = {"tj": "сомонӣ", "uz": "сом", "ru": "сом"}
 EVO_DAYS = {"tj": "рӯз", "uz": "kun", "ru": "дн."}
 
@@ -249,6 +252,21 @@ def text_handler(update: Update, context: CallbackContext):
         return
     if txt.startswith("🔁"):
         lang_cmd(update, context)
+        return
+
+    # card choice
+    if "eskhata" in low or "эсхата" in low or "dcity" in low:
+        rec = users_db.get(str(uid), {})
+        if not str(rec.get("last_action", "")).startswith(("buy_", "voucher_", "brcard", "evo_")):
+            send_main_menu(uid, context)
+            return
+        key = "dcity" if "dcity" in low else "eskhata"
+        rec["card"] = key
+        write_json(USERS_FILE, users_db)
+        msg = {"tj": "✅ Корт интихоб шуд: {c}\nПас аз пардохт скриншот фиристед.",
+               "uz": "✅ Karta tanlandi: {c}\nTo'lovdan keyin skrin yuboring.",
+               "ru": "✅ Карта выбрана: {c}\nПосле оплаты отправьте скриншот."}[lang]
+        context.bot.send_message(chat_id=uid, text=msg.format(c=CARD_NAMES[key]))
         return
 
     # screenshot button -> ask for a photo
@@ -312,15 +330,16 @@ def send_packages(uid, context: CallbackContext):
 def send_item(uid, context, action, title, price):
     """Payment instructions for any product."""
     lang = get_lang(uid)
+    users_db.setdefault(str(uid), {})["card"] = None  # card must be chosen again for each order
     set_last_action(uid, action)
     cur = CUR[lang]
     if lang == "tj":
-        text = f"🔹 {title} — {price} {cur}\n💳 Рақам: {PAY_NUMBER}\nПас аз пардохт скриншот фиристед."
+        text = f"🔹 {title} — {price} {cur}\n💳 Рақам: {PAY_NUMBER}\nКортро интихоб кунед, пас аз пардохт скриншот фиристед."
     elif lang == "uz":
-        text = f"🔹 {title} — {price} {cur}\n💳 To'lov: {PAY_NUMBER}\nTo'lovdan keyin skrin yuboring."
+        text = f"🔹 {title} — {price} {cur}\n💳 To'lov: {PAY_NUMBER}\nKartani tanlang, to'lovdan keyin skrin yuboring."
     else:
-        text = f"🔹 {title} — {price} {cur}\n💳 Номер: {PAY_NUMBER}\nПосле оплаты отправьте скриншот."
-    kb = ReplyKeyboardMarkup([[L_SHOT[lang]], [L_BACK[lang]]], resize_keyboard=True)
+        text = f"🔹 {title} — {price} {cur}\n💳 Номер: {PAY_NUMBER}\nВыберите карту, после оплаты отправьте скриншот."
+    kb = ReplyKeyboardMarkup([[BTN_ESKHATA, BTN_DCITY], [L_SHOT[lang]], [L_BACK[lang]]], resize_keyboard=True)
     context.bot.send_message(chat_id=uid, text=text, reply_markup=kb)
 
 
@@ -368,14 +387,15 @@ def photo_handler(update: Update, context: CallbackContext):
     last = users_db.get(str(uid), {}).get("last_action", "unknown")
     ts = int(time.time())
     username = f"@{user.username}" if user.username else user.first_name
+    card = CARD_NAMES.get(users_db.get(str(uid), {}).get("card"), "не выбрана")
     caption = (f"🆕 Скриншот от {username}\nUser ID: {uid}\n"
-               f"Last action: {last}\nTime: {utc_str(ts)}")
+               f"Last action: {last}\n💳 Карта: {card}\nTime: {utc_str(ts)}")
     try:
         context.bot.send_photo(chat_id=ADMIN_ID, photo=update.message.photo[-1].file_id, caption=caption)
     except Exception as e:
         logger.exception("send to admin failed: %s", e)
     log_sale({"user_id": uid, "username": user.username or user.first_name,
-              "action": last, "timestamp": ts, "status": "pending"})
+              "action": last, "card": card, "timestamp": ts, "status": "pending"})
     context.bot.send_message(chat_id=uid, text=tx("photo_sent", lang))
 
 
@@ -470,7 +490,7 @@ def sales_cmd(update: Update, context: CallbackContext):
         return
     out = "🧾 Last sales:\n"
     for s in reversed(sales_db[-20:]):
-        out += f"{utc_str(s['timestamp'], '%Y-%m-%d %H:%M')} | uid:{s['user_id']} | {s['action']} | {s['status']}\n"
+        out += f"{utc_str(s['timestamp'], '%Y-%m-%d %H:%M')} | uid:{s['user_id']} | {s['action']} | {s.get('card', '-')} | {s['status']}\n"
     update.message.reply_text(out)
 
 
