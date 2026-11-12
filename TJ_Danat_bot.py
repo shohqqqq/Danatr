@@ -142,6 +142,25 @@ TEXTS = {
     "photo_sent": {"tj": "⏳ Скриншот ба админ фиристода шуд. Тасдиқро интизор шавед (1-10 дақиқа).",
                    "uz": "⏳ Skrinshot adminga yuborildi. Tasdiqni kuting (1-10 daqiqa).",
                    "ru": "⏳ Скриншот отправлен админу. Ожидайте подтверждения (1-10 минут)."},
+    "ask_id": {"tj": "🎮 Free Fire ID-и худро (танҳо рақамҳо) нависед:",
+               "uz": "🎮 Free Fire ID raqamingizni (faqat raqamlar) yozing:",
+               "ru": "🎮 Введите ваш Free Fire ID (только цифры):"},
+    "bad_id": {"tj": "❌ ID нодуруст аст. Танҳо рақамҳо нависед (6–14 рақам) ё 🔙 пахш кунед.",
+               "uz": "❌ ID noto'g'ri. Faqat raqam yozing (6–14 ta) yoki 🔙 bosing.",
+               "ru": "❌ Неверный ID. Введите только цифры (6–14) или нажмите 🔙."},
+    "ask_nick": {"tj": "👤 Акнун Free Fire никнейми худро дар бозӣ чӣ тавр бошад, айнан нависед:",
+                 "uz": "👤 Endi Free Fire nikneymingizni o'yindagidek aynan yozing:",
+                 "ru": "👤 Теперь напишите ваш ник в Free Fire точно так, как в игре:"},
+    "bad_nick": {"tj": "❌ Никнейм 1–40 аломат бошад.", "uz": "❌ Nikneym 1–40 belgi bo'lsin.",
+                 "ru": "❌ Ник должен быть от 1 до 40 символов."},
+    "confirm_q": {"tj": "🔎 Лутфан бори дигар санҷед:\n\n🆔 ID: {id}\n👤 Никнейм: {nick}\n\nДуруст аст?",
+                  "uz": "🔎 Iltimos, yana bir bor tekshiring:\n\n🆔 ID: {id}\n👤 Nikneym: {nick}\n\nTo'g'rimi?",
+                  "ru": "🔎 Пожалуйста, проверьте ещё раз:\n\n🆔 ID: {id}\n👤 Ник: {nick}\n\nВсё верно?"},
+    "need_buttons": {"tj": "Тугмаро пахш кунед: ✅ ё ✏️", "uz": "Tugmani bosing: ✅ yoki ✏️",
+                     "ru": "Нажмите кнопку: ✅ или ✏️"},
+    "need_order": {"tj": "Аввал маҳсулот интихоб кунед, ID ва никро тасдиқ намоед, баъд скриншот фиристед.",
+                   "uz": "Avval mahsulotni tanlang, ID va nikni tasdiqlang, keyin skrinshot yuboring.",
+                   "ru": "Сначала выберите товар и подтвердите ID и ник, затем отправьте скриншот."},
     "need_start": {"tj": "Аввал /start пахш кунед", "uz": "Avval /start bosing", "ru": "Сначала нажмите /start"},
 }
 
@@ -232,6 +251,12 @@ L_SHOT = {"tj": "📤 Скриншот фиристодам", "uz": "📤 Skreen
 BTN_ESKHATA = "🏦 Eskhata"
 BTN_DCITY = "💳 DCity"
 CARD_NAMES = {"eskhata": "Eskhata Bank", "dcity": "DCity"}
+L_YES = {"tj": "✅ Ҳа, дуруст аст", "uz": "✅ Ha, to'g'ri", "ru": "✅ Да, верно"}
+L_NO = {"tj": "✏️ Не, ислоҳ мекунам", "uz": "✏️ Yo'q, tuzataman", "ru": "✏️ Нет, исправить"}
+MENU_LABELS = {"🛒 Хариди алмазҳо", "🎫 Ваучерҳо", "🌟 BR Card", "🦾 EVO рӯзона", "📞 Поддержка",
+               "🛒 Almaz xaridi", "🎫 Vaucherlar", "🦾 EVO kunlik", "📞 Support",
+               "🛒 Купить алмазы", "🎫 Ваучеры", "🦾 EVO на дни"}
+ORDER_PREFIXES = ("buy_", "voucher_", "brcard", "evo_")
 CUR = {"tj": "сомонӣ", "uz": "сом", "ru": "сом"}
 EVO_DAYS = {"tj": "рӯз", "uz": "kun", "ru": "дн."}
 
@@ -246,6 +271,13 @@ def text_handler(update: Update, context: CallbackContext):
         return
     lang = get_lang(uid)
 
+    # order flow (Free Fire ID / nickname / confirmation)
+    rec = users_db[str(uid)]
+    if "🔙" in txt or txt in MENU_LABELS or txt.startswith("🔁"):
+        rec["state"] = None  # leaving the order flow
+    if rec.get("state") and handle_order_flow(uid, context, txt, rec, lang):
+        return
+
     # back / language
     if "🔙" in txt:
         send_main_menu(uid, context)
@@ -257,7 +289,7 @@ def text_handler(update: Update, context: CallbackContext):
     # card choice
     if "eskhata" in low or "эсхата" in low or "dcity" in low:
         rec = users_db.get(str(uid), {})
-        if not str(rec.get("last_action", "")).startswith(("buy_", "voucher_", "brcard", "evo_")):
+        if not str(rec.get("last_action", "")).startswith(ORDER_PREFIXES) or not rec.get("ff_id"):
             send_main_menu(uid, context)
             return
         key = "dcity" if "dcity" in low else "eskhata"
@@ -328,10 +360,61 @@ def send_packages(uid, context: CallbackContext):
 
 
 def send_item(uid, context, action, title, price):
-    """Payment instructions for any product."""
+    """Start an order: first ask for the Free Fire ID."""
     lang = get_lang(uid)
-    users_db.setdefault(str(uid), {})["card"] = None  # card must be chosen again for each order
-    set_last_action(uid, action)
+    rec = users_db.setdefault(str(uid), {})
+    rec.update({"card": None, "ff_id": None, "ff_nick": None, "state": "await_id",
+                "pending": [action, title, price]})
+    set_last_action(uid, action)  # also saves users.json
+    context.bot.send_message(chat_id=uid, text=tx("ask_id", lang),
+                             reply_markup=ReplyKeyboardMarkup([[L_BACK[lang]]], resize_keyboard=True))
+
+
+def handle_order_flow(uid, context, txt, rec, lang):
+    """ID -> nickname -> confirmation. Returns True if the message was consumed."""
+    state = rec.get("state")
+    back_kb = ReplyKeyboardMarkup([[L_BACK[lang]]], resize_keyboard=True)
+    if state == "await_id":
+        digits = txt.replace(" ", "")
+        if re.fullmatch(r"\d{6,14}", digits):
+            rec["ff_id"] = digits
+            rec["state"] = "await_nick"
+            write_json(USERS_FILE, users_db)
+            context.bot.send_message(chat_id=uid, text=tx("ask_nick", lang), reply_markup=back_kb)
+        else:
+            context.bot.send_message(chat_id=uid, text=tx("bad_id", lang), reply_markup=back_kb)
+        return True
+    if state == "await_nick":
+        nick = txt.strip()
+        if 1 <= len(nick) <= 40:
+            rec["ff_nick"] = nick
+            rec["state"] = "await_confirm"
+            write_json(USERS_FILE, users_db)
+            kb = ReplyKeyboardMarkup([[L_YES[lang]], [L_NO[lang]], [L_BACK[lang]]], resize_keyboard=True)
+            context.bot.send_message(chat_id=uid, reply_markup=kb,
+                                     text=tx("confirm_q", lang).format(id=rec["ff_id"], nick=nick))
+        else:
+            context.bot.send_message(chat_id=uid, text=tx("bad_nick", lang), reply_markup=back_kb)
+        return True
+    if state == "await_confirm":
+        if txt.startswith("✅"):
+            rec["state"] = None
+            write_json(USERS_FILE, users_db)
+            action, title, price = rec["pending"]
+            show_payment(uid, context, action, title, price)
+        elif txt.startswith("✏️"):
+            rec.update({"ff_id": None, "ff_nick": None, "state": "await_id"})
+            write_json(USERS_FILE, users_db)
+            context.bot.send_message(chat_id=uid, text=tx("ask_id", lang), reply_markup=back_kb)
+        else:
+            context.bot.send_message(chat_id=uid, text=tx("need_buttons", lang))
+        return True
+    return False
+
+
+def show_payment(uid, context, action, title, price):
+    """Payment instructions (shown after the ID and nickname are confirmed)."""
+    lang = get_lang(uid)
     cur = CUR[lang]
     if lang == "tj":
         text = f"🔹 {title} — {price} {cur}\n💳 Рақам: {PAY_NUMBER}\nКортро интихоб кунед, пас аз пардохт скриншот фиристед."
@@ -385,17 +468,23 @@ def photo_handler(update: Update, context: CallbackContext):
     user = update.effective_user
     lang = get_lang(uid)
     last = users_db.get(str(uid), {}).get("last_action", "unknown")
+    rec = users_db.get(str(uid), {})
+    if rec.get("state") or not rec.get("ff_id") or not str(last).startswith(ORDER_PREFIXES):
+        context.bot.send_message(chat_id=uid, text=tx("need_order", lang))
+        return
     ts = int(time.time())
     username = f"@{user.username}" if user.username else user.first_name
     card = CARD_NAMES.get(users_db.get(str(uid), {}).get("card"), "не выбрана")
     caption = (f"🆕 Скриншот от {username}\nUser ID: {uid}\n"
-               f"Last action: {last}\n💳 Карта: {card}\nTime: {utc_str(ts)}")
+               f"Last action: {last}\n🎮 FF ID: {rec.get('ff_id')}\n👤 Ник: {rec.get('ff_nick')}\n"
+               f"💳 Карта: {card}\nTime: {utc_str(ts)}")
     try:
         context.bot.send_photo(chat_id=ADMIN_ID, photo=update.message.photo[-1].file_id, caption=caption)
     except Exception as e:
         logger.exception("send to admin failed: %s", e)
     log_sale({"user_id": uid, "username": user.username or user.first_name,
-              "action": last, "card": card, "timestamp": ts, "status": "pending"})
+              "action": last, "card": card, "ff_id": rec.get("ff_id"), "ff_nick": rec.get("ff_nick"),
+              "timestamp": ts, "status": "pending"})
     context.bot.send_message(chat_id=uid, text=tx("photo_sent", lang))
 
 
