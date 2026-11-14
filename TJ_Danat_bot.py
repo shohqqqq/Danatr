@@ -53,6 +53,8 @@ VOUCHERS = {  # key: (price, label, period per language)
 }
 VOUCHER_BY_NUM = {"90": "mini", "450": "week", "2600": "month"}
 PAY_NUMBER = os.getenv("PAY_NUMBER", "")
+PAY_ESKHATA = os.getenv("PAY_ESKHATA", "") or PAY_NUMBER  # Eskhata Bank
+PAY_DCITY = os.getenv("PAY_DCITY", "") or PAY_NUMBER      # Dushanbe City Bank
 BOT_VERSION = "2026-11-13 buttons-v2"  # shown in /users and in the log
 
 PRICE_BY_ACTION = {}
@@ -299,6 +301,7 @@ L_SHOT = {"tj": "📤 Скриншот фиристодам", "uz": "📤 Skrins
 BTN_ESKHATA = "🏦 Eskhata"
 BTN_DCITY = "💳 DCity"
 CARD_NAMES = {"eskhata": "Eskhata Bank", "dcity": "DCity"}
+CARD_NUMBERS = {"eskhata": PAY_ESKHATA, "dcity": PAY_DCITY}
 L_YES = {"tj": "✅ Ҳа, дуруст аст", "uz": "✅ Ha, to'g'ri", "ru": "✅ Да, верно"}
 L_NO = {"tj": "✏️ Не, ислоҳ мекунам", "uz": "✏️ Yo'q, tuzataman", "ru": "✏️ Нет, исправить"}
 MENU_LABELS = {"🛒 Хариди алмазҳо", "🎫 Ваучерҳо", "📞 Дастгирӣ", "📞 Поддержка",
@@ -346,7 +349,7 @@ def text_handler(update: Update, context: CallbackContext):
         msg = {"tj": "✅ Корт интихоб шуд: {c}\nПас аз пардохт скриншот фиристед.",
                "uz": "✅ Karta tanlandi: {c}\nTo'lovdan keyin skrin yuboring.",
                "ru": "✅ Карта выбрана: {c}\nПосле оплаты отправьте скриншот."}[lang]
-        context.bot.send_message(chat_id=uid, text=msg.format(c=CARD_NAMES[key]))
+        context.bot.send_message(chat_id=uid, text=msg.format(c=f"{CARD_NAMES[key]} — {CARD_NUMBERS[key]}"))
         return
 
     # screenshot button -> ask for a photo
@@ -451,11 +454,11 @@ def show_payment(uid, context, action, title, price):
     lang = get_lang(uid)
     cur = CUR[lang]
     if lang == "tj":
-        text = f"🔹 {title} — {price} {cur}\n💳 Рақам: {PAY_NUMBER}\nКортро интихоб кунед, пас аз пардохт скриншот фиристед."
+        text = f"🔹 {title} — {price} {cur}\n\n🏦 Eskhata: {PAY_ESKHATA}\n💳 DCity: {PAY_DCITY}\n\nБа кадом корт пардохт кардед, ҳамон тугмаро пахш кунед ва скриншот фиристед."
     elif lang == "uz":
-        text = f"🔹 {title} — {price} {cur}\n💳 To'lov: {PAY_NUMBER}\nKartani tanlang, to'lovdan keyin skrin yuboring."
+        text = f"🔹 {title} — {price} {cur}\n\n🏦 Eskhata: {PAY_ESKHATA}\n💳 DCity: {PAY_DCITY}\n\nQaysi kartaga to'lagan bo'lsangiz, shu tugmani bosing va skrinshot yuboring."
     else:
-        text = f"🔹 {title} — {price} {cur}\n💳 Номер: {PAY_NUMBER}\nВыберите карту, после оплаты отправьте скриншот."
+        text = f"🔹 {title} — {price} {cur}\n\n🏦 Eskhata: {PAY_ESKHATA}\n💳 DCity: {PAY_DCITY}\n\nНажмите кнопку той карты, на которую оплатили, и отправьте скриншот."
     kb = ReplyKeyboardMarkup([[BTN_ESKHATA, BTN_DCITY], [L_SHOT[lang]], [L_BACK[lang]]], resize_keyboard=True)
     context.bot.send_message(chat_id=uid, text=text, reply_markup=kb)
 
